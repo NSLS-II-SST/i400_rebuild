@@ -1,0 +1,449 @@
+#
+# StreamDevice protocol for the I400.
+#
+# A full command from the host to the I400 comprises as many characters
+# as needed to form the message, terminated by a LF character.
+# The LF is required for the I400 to commence processing.
+#
+# The I400 generates a reply to every message from the host when it is
+# the listener. First the I400 echos the command as sent icluding the LF.
+# Following that the first character is ACK (0x6) when the command has
+# been successfully executed without error. Responses to commands with
+# a "?" will the have required data, terminated by CR, LF. If no data
+# is required nothing will be transmitted after the ACK. If the I400
+# generates an error then it transmits a BELL (0x7) instead of the ACK.
+
+# SET functions need InTerminator = LF ACK
+# GET functions need to have LF ACK (\n\x06) mid-string, and InTerminator CR LF
+
+OutTerminator = LF;
+
+replytimeout = 499;
+readtimeout  = 900;
+locktimeout = 5000;
+
+
+# Recall state from EEPROM
+recall {out "*RCL"; in "*RCL\10%*c";}
+
+# Return I400 to default conditions
+reset {
+        InTerminator = LF ACK;
+        out "*RST";
+        in "*RST";
+}
+
+# Clear I400 event registers and error queue
+clear {
+        InTerminator = LF ACK;
+
+        out "*CLS";
+        in "*CLS";
+}
+
+#################### Calibration ####################
+
+## calibrateGain
+doCalib {
+        InTerminator = LF ACK;
+
+        out "CALIBration:GAIn";
+        in "CALIBration:GAIn";
+}
+
+#### in: CALIBration:GAIn?<0a><06>15,1.1880e+00,1.2" where "<0a>" was expected
+getCalib {
+        InTerminator = CR LF;
+        out "CALIBration:GAIn?"; 
+        in "CALIBration:GAIn?\n\x06%s";
+}
+
+
+#reset stored gains to nominal
+clearCalib {
+        InTerminator = LF ACK;
+        out "CALIBration:GAIn CLEar"; 
+        in "CALIBration:GAIn CLEar";
+}
+
+
+#enable internal calib source 
+## setCalibState
+testCalib {
+        InTerminator = LF ACK;
+
+        out "CALIBration:SOURce %d"; 
+        in "CALIBration:SOURce %d";
+}
+
+getCalibState {
+	InTerminator = CR LF;
+
+        out "CALIBration:SOURce?"; 
+        in "CALIBration:SOURce?\n\x06%d";
+}
+
+
+
+# Recall calibration (needed after reset)
+recallCalib {
+	InTerminator = LF ACK;
+        out "CALIBration:RCL";
+        #in "CALIBration:RCL\n%c";
+	in "CALIBration:RCL";
+}
+
+# Save calibration
+saveCalib {
+        InTerminator = LF ACK;
+        out "CALIBration:SAV";
+        #in "CALIBration:SAV\n%c";
+	in "CALIBration:SAV";
+}
+
+#################### Configuration ####################
+
+# Set/Query capacitor, by default 0 = 10pF and 1 = 1000pF
+setCap {
+        InTerminator = LF ACK;
+
+        out "CONFigure:CAPacitor %{0|1}"; 
+        #in "CONFigure:CAPacitor %*d\n\x06";
+        in "CONFigure:CAPacitor %*d";
+}
+
+##receive capcitance value e.g. "0,1.0000e-10 F" cap#0 (small one) and its value)
+getCap {
+        InTerminator = CR LF;
+        out "CONFigure:CAPacitor?"; 
+        in "CONFigure:CAPacitor?\n\x06%d,%(\$1.VAL)e F"; 
+}
+
+
+# Set/Query current Range
+setRange {
+        InTerminator = LF ACK;
+        out "CONF:GATE:INT:RANGE %e"; 
+        in "CONF:GATE:INT:RANGE %e";
+}
+
+###1.0000e-06 A
+getRange {
+
+        InTerminator = CR LF;
+        #out "CONF:GATE:INT:RANGE?";
+        out "RANGE?";
+        #in "CONF:GATE:INT:RANGE?\n\x06%e %(EGU)c,1";   # ',1'  are subsamples default is 1
+        in "RANGE?\n\x06%e %(EGU)c,1";   # ',1'  are subsamples default is 1
+}
+
+
+# Set/Query current Range
+#
+setPeriod {
+        InTerminator = LF ACK;
+        out "PERiod %e"; #out "CONFigure:GATe:INTernal:PERiod %e";
+        in "PERiod %e"; #in "CONFigure:GATe:INTernal:PERiod %e";
+##needs something that handels the NACK case in "CONFigure:RANGe %e\n\x07";
+
+}
+
+getPeriod {
+        InTerminator = CR LF;
+        out "PERiod?";  #out "CONFigure:GATe:INTernal:PERiod?";
+        in "PERiod?\n\x06%e %(EGU)c,1";   # ',1'  are subsamples default is 1
+         #in "CONFigure:GATe:INTernal:PERiod?\n\x06%e %(EGU)c,1; # ',1'  are subsamples default is 1
+}
+
+##################### HV Configuration ######################
+
+# Set/Query Maximum *External* High Voltage in Volts (Password Protected)
+setHVext {
+        InTerminator = LF ACK;
+        out "CONFigure:HIVOltage:EXTernal:MAXvalue %d"; 
+        in "CONFigure:HIVOltage:EXTernal:MAXvalue %d";
+}
+
+getHVext {
+        InTerminator = CR LF;
+        out "CONFigure:HIVOltage:EXTernal:MAXvalue?";
+        in "CONFigure:HIVOltage:EXTernal:MAXvalue?\n\x06%d";
+}
+
+checkHVRext {
+        out "CONFigure:HIVOltage:EXTernal:VOLT?";
+        in "CONFigure:HIVOltage:EXTernal:VOLT?\n%{\7|\6}";#check
+        ExtraInput = IGNORE;
+}
+
+
+
+# Set/Query Maximum *Signal* High Voltage in Volts (Password Protected)
+#check if we even need any of these??
+checkHV {
+        #InTerminator = LF ACK;
+	
+        out "CONFigure:HIVOltage:SIGnal:VOLT %d"; 
+        in "CONFigure:HIVOltage:SIGnal:VOLT %*d\n%{\7|\6}"; #%*d\n%{\7|\6} #check
+#       @init { 
+#               out "CONFigure:HIVOltage:SIGnal:VOLT?"; 
+#               in "CONFigure:HIVOltage:SIGnal:VOLT?\n\x06%d";
+#       }
+}
+
+checkHVR {
+	
+        out "CONFigure:HIVOltage:SIGnal:VOLT?";
+        in "CONFigure:HIVOltage:SIGnal:VOLT?\n%{\7|\6}"; #check if this works
+        ExtraInput = IGNORE;
+}
+
+
+
+setHVMax {
+	InTerminator = LF ACK;
+        out "CONFigure:HIVOltage:SIGnal:MAXvalue %d"; 
+        in "CONFigure:HIVOltage:SIGnal:MAXvalue %d";
+}
+
+getHVMax {
+        InTerminator = CR LF;
+        out "CONFigure:HIVOltage:SIGnal:MAXvalue?";
+        in "CONFigure:HIVOltage:SIGnal:MAXvalue?\n\x06%d";
+}
+
+# Set/Query External High Voltage in Volts
+setHV {
+        InTerminator = LF ACK;
+        out "CONFigure:HIVOltage:SIGnal:VOLT %d"; 
+        in  "CONFigure:HIVOltage:SIGnal:VOLT %d";
+        #@missmatch  {
+                ##Timeout after reading 35 bytes "...tage:SIGnal:VOLT 5<0a><07>"
+                #in "CONFigure:HIVOltage:SIGnal:VOLT %*d\n%(/$1/$2)d";
+        #}
+}
+
+# Don't use InTerminator on GetHV, causes failure during init handler for checkHV
+getHV {
+        InTerminator = CR LF;
+        out "CONFigure:HIVOltage:SIGnal:VOLT?"; 
+        in "CONFigure:HIVOltage:SIGnal:VOLT?\n\x06%d";
+}
+
+#################### Buffered Data Commands ####################
+
+clearData {
+        InTerminator = LF ACK;
+        out "DATa:CLEar";
+	in "DATa:CLEar";
+}
+
+setDataMask {
+        InTerminator = LF ACK;
+        out "DATa:FEEd %b";
+	in "DATa:FEEd %b";
+}
+
+getDataMask {
+        InTerminator = CR LF;
+	out "DATa:FEEd?";
+	in "DATa:FEEd?\n\x06%b";
+}
+
+setDataPoints {
+        InTerminator = LF ACK;
+        out "DATa:POINts %u";
+	in "DATa:POINts %u";
+}
+
+getDataPoints {
+        InTerminator = CR LF
+	out "DATa:POINts?";
+	in "DATa:POINts?\n\x06%u";
+}
+
+getDataStream {
+	InTerminator = CR LF;
+	out "DATa:STREAM?"
+	in "DATa:STREAM?\n\x06%s"#check and format like read, shove into PVs, etc etc
+}
+
+#################### Fetch Commands ####################
+
+fetchDigital {
+        InTerminator = CR LF;
+        OUT "FETCh:DIGital?";
+        in "FETCh:DIGital?\n\x06%b";
+}
+
+readCurr {
+        InTerminator = CR LF;
+        out "FETCH:CURR?";
+        in "FETCH:CURR?\n\6%c"; #check -- is just reading one character???
+}
+
+
+# Initiate readings on valid trigger
+init {
+
+        out "INIT";
+	in "INIT\10%*c";#check -- is ignoring possibility of nack, maybe good?
+}
+
+#################### Read Commands ####################
+
+ # Read monitor voltage input ADC
+ #The monitor port also provides an uncommitted 0 to +5 VDC analog input that is read with 10
+ #bit resolution, and which you may use for any monitoring purpose.
+ 
+getADC {
+        InTerminator = CR LF;
+        OUT "READ:MONitor?";
+        in "READ:MONitor?\n\x06%f V";
+}
+
+
+ # Read pressure input ADC
+ #If you select the -TP option with your I400, the unit is supplied with a B57703 thermistor probe,
+ #which you should attach securely to the ionization chamber, and an internal barometer that
+ #monitors the atmospheric pressure in the range 600 to 1100 mbar.
+getPressure {
+        InTerminator = CR LF;
+        OUT "READ:PRESsure?";
+        in "READ:PRESsure?\n\x06%f";
+}
+
+ # Read temperature input ADC
+getTemperature {
+        InTerminator = CR LF;
+        OUT "READ:TEMPerature?";
+        in "READ:TEMPerature?\n\x06%f CEL";
+}
+
+# Query the last measured current data in amps.
+#read:curr?<\n>
+#OK<\r><\n>
+#1.0000e-04 S,-7.5463e-11 A,-2.9669e-10 A,-1.0994e-10 A,-3.7466e-11 A,0<\r><\n>
+#
+#streamdebug
+#input line: "READ:CURR?<0a>OK<0d><0a>1.0000e-04 S,3.7732e-11 A,-2.9669e-10 A,3.6647e-11 A,1.4986e-10 A,0<0d><0a>"
+
+readCurrents {
+        replytimeout = 100;
+        readtimeout  = 65001;  #maximum integration time
+        locktimeout = 65005;
+
+        InTerminator = CR LF;
+        out "READ:CURRent?";
+
+        #I400 $1=Dev $2=time $3=OVR $4=Current-2,$5=Current-3...currents
+	in "READ:CURRent?\n\x06%(\$1:\$2.VAL)e %(\$1:\$2.EGU)c,%e %(EGU)c,%(\$1:I2_MON.VAL)e %(\$1:I2_MON.EGU)c,%(\$1:I3_MON.VAL)e %(\$1:I3_MON.EGU)c,%(\$1:I4_MON.VAL)e %(\$1:I4_MON.EGU)c,%(\$1:\$3.VAL)i";
+
+}
+
+readDigital {
+        InTerminator = CR LF;
+
+        OUT "READ:DIGital?";
+        in "READ:DIGital?\n\x06%u";
+}
+
+#################### Status Commands ####################
+
+getStatusOperCond {
+        InTerminator = CR LF;
+        out "STATus:OPERation:CONDition?"; 
+        in "STATus:OPERation:CONDition?\n\x06%u"; 
+}
+
+getStatusQuestCond {
+        InTerminator = CR LF;
+        out "STATus:QUESTionable:CONDition?"; 
+        in "STATus:QUESTionable:CONDition?\n\x06%u"; 
+}
+
+#################### System Commands ####################
+
+getErr {
+        InTerminator = CR LF;
+        out "SYSTem:ERRor?"; 
+        in "SYSTem:ERRor?\n\x06%*d,\34%[^,\34]\34"; #check, \34 is quote -- why not use %s?
+}
+
+#get dominant noise frequency (generally line frequency, 50 or 60 Hz) set needs password
+getFilterfreq {
+        InTerminator = CR LF;
+        OUT "SYSTem:FREQuency?";
+        in "SYSTem:FREQuency?\n\x06%s";   #%u
+}
+
+setFilterfreq {  
+        InTerminator = LF ACK;
+        extrainput = error;
+
+        @mismatch {
+                IN "SYSTem:FREQuency %(\$1:\$2.VAL)39c";
+        }
+
+
+        @replytimeout {
+                IN "SYSTem%(\$1:\$2)39c";
+        }
+
+
+        #Timeout after reading 21 bytes "...YSTem:FREQuency 50<0a><07>"
+        @readtimeout {
+                IN "SYSTem%(\$1:\$2)39c";
+        }
+
+
+        
+        OUT "SYSTem:FREQuency %s"; #%u
+        IN "SYSTem:FREQuency %s";  #%u
+        #IN "SYSTem%(\$1:\$2)39c";
+}
+
+#get dominant noise frequency (generally line frequency, 50 or 60 Hz) set needs password
+getSafestate {
+        InTerminator = CR LF;
+        OUT "SYSTem:SAFEstate?";
+        in "SYSTem:SAFEstate?\n\x06%u";
+}
+
+getTriggerCount {
+        InTerminator = CR LF;
+	out "TRIGger:COUNt?";
+	in "TRIGger:COUNt?\n\x06%u";
+}
+
+setTriggerPoints {
+        InTerminator = LF ACK;
+	out "TRIGger:POINts %u";
+	in "TRIGger:POINts %u";
+}
+
+setTriggerPointsInf {
+        InTerminator = LF ACK;
+	out "TRIGger:POINts INF";
+	in "TRIGger:POINts INF";
+}
+
+getTriggerPoints {
+        InTerminator = CR LF;
+	out "TRIGger:POINts?";
+	in "TRIGger:POINts?\n\x06%s"; #  Could be number or "INF", test
+}
+
+setTriggerSource {
+        InTerminator = LF ACK;
+	out "TRIGger:SOURce %{INTernal|EXTERNAL_START|EXTERNAL_STOP}";
+	in "TRIGger:SOURce %*s"; #  Figure out readback into EPICS...
+}
+
+getTriggerSource {
+        InTerminator = CR LF;
+	out "TRIGger:SOURce?";
+	in "TRIGger:SOURce?\n\x06%{INTernal|EXTERNAL_START|EXTERNAL_STOP}";
+}
+
+#----------------------Checked Above This Line----------------------------#
